@@ -1,5 +1,5 @@
 fastapi==0.109.0
-uvicorn==0.25.0
+uvicorn[standard]==0.27.0
 motor==3.3.1
 pymongo==4.5.0
 pydantic>=2.6.4
@@ -18,13 +18,3 @@ cryptography>=42.0.8
 requests>=2.31.0
 pandas>=2.2.0
 numpy>=1.26.0
-jq>=1.6.0
-typer>=0.9.0
-tzdata>=2024.2
-
-# Dev dependencies (opsiyonel)
-pytest>=8.0.0
-black>=24.1.1
-isort>=5.13.2
-flake8>=7.0.0
-mypy>=1.8.0

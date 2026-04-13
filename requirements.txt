@@ -20,7 +20,6 @@ pandas>=2.2.0
 numpy>=1.26.0
 jq>=1.6.0
 typer>=0.9.0
-emergentintegrations==0.1.0
 tzdata>=2024.2
 
 # Dev dependencies (opsiyonel)

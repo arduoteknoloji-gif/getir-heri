@@ -313,7 +313,7 @@ async def login(req: LoginRequest, response: Response, request: Request):
     
     response.set_cookie(
         key="access_token", value=access_token, httponly=True,
-        secure=False, samesite="lax", max_age=900, path="/"
+        secure=True, samesite="none", max_age=900, path="/"
     )
     response.set_cookie(
         key="refresh_token", value=refresh_token, httponly=True,
@@ -354,7 +354,7 @@ async def refresh(request: Request, response: Response):
         
         response.set_cookie(
             key="access_token", value=access_token, httponly=True,
-            secure=False, samesite="lax", max_age=900, path="/"
+            secure=True, samesite="lax", max_age=900, path="/"
         )
         
         return {"message": "Token refreshed"}
@@ -1253,10 +1253,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=[
-        os.environ.get("FRONTEND_URL", "http://localhost:3000"),
-        "https://getir-heri.web.app",  # Firebase Hosting
-        "https://getir-heri.firebaseapp.com",  # Firebase Hosting alt domain
-    ],
+    "https://kurye-app05.web.app",
+    "https://kurye-app05.firebaseapp.com"
+    "https://getir-heri.onrender.com",
+    "https://getir-heri.web.app",  // Firebase hosting
+],
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -35,25 +35,9 @@ db = client[os.environ['DB_NAME']]
 app = FastAPI(
     title="Getir-Heri API",
     version="1.0.0",
-    docs_url="/api/docs" if os.environ.get("ENV") != "production" else None
-    redirect_slashes=False   # ← Bu satırı ekle
+    docs_url="/api/docs" if os.environ.get("ENV") != "production" else None,
+    redirect_slashes=False
 )
-
-# ============================================================
-# CORS Middleware - EN ÜSTTE (hiçbir şeyden önce)
-# ============================================================
-#app.add_middleware(
-#    CORSMiddleware,
-#    allow_origins=[
-#        "https://kurye-app05.web.app",
-#        "https://kurye-app05.firebaseapp.com",
-#    ],
-#    allow_credentials=True,
-#    allow_methods=["*"],
-#    allow_headers=["*"],
-#    expose_headers=["*"],
-#    max_age=3600,
-#)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -1233,7 +1217,7 @@ async def startup_event():
 app.include_router(api_router)
 
 # ============================================================
-# CORS Middleware - EN SONDA (birçok Render/FastAPI sorununda bu çözüyor)
+# CORS Middleware - EN SONDA (Render için en stabil konum)
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
@@ -1241,7 +1225,7 @@ app.add_middleware(
         "https://kurye-app05.web.app",
         "https://kurye-app05.firebaseapp.com",
         "https://courier-system-10.preview.emergentagent.com",
-        "https://getir-heri.onrender.com",
+        "https://getir-heri.onrender.com"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

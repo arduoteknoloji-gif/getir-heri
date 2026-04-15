@@ -5,7 +5,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, WebSocket, WebSocketDisconnect
-from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -19,9 +19,8 @@ import json
 import asyncio
 
 # ============================================================
-# MongoDB Atlas Connection (Optimize edildi)
-# ============================================================
 # MongoDB Atlas Connection
+# ============================================================
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(
     mongo_url,
@@ -37,6 +36,22 @@ app = FastAPI(
     title="Getir-Heri API",
     version="1.0.0",
     docs_url="/api/docs" if os.environ.get("ENV") != "production" else None
+)
+
+# ============================================================
+# CORS Middleware - EN ÜSTTE (hiçbir şeyden önce)
+# ============================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://kurye-app05.web.app",
+        "https://kurye-app05.firebaseapp.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 # Create a router with the /api prefix
@@ -268,11 +283,11 @@ async def register(req: RegisterRequest, response: Response):
     
     response.set_cookie(
         key="access_token", value=access_token, httponly=True,
-        secure=False, samesite="lax", max_age=900, path="/"
+        secure=True, samesite="none", max_age=900, path="/"
     )
     response.set_cookie(
         key="refresh_token", value=refresh_token, httponly=True,
-        secure=False, samesite="lax", max_age=604800, path="/"
+        secure=True, samesite="none", max_age=604800, path="/"
     )
     
     user_doc["_id"] = user_id
@@ -317,7 +332,7 @@ async def login(req: LoginRequest, response: Response, request: Request):
     )
     response.set_cookie(
         key="refresh_token", value=refresh_token, httponly=True,
-        secure=False, samesite="lax", max_age=604800, path="/"
+        secure=True, samesite="none", max_age=604800, path="/"
     )
     
     user["_id"] = user_id
@@ -354,7 +369,7 @@ async def refresh(request: Request, response: Response):
         
         response.set_cookie(
             key="access_token", value=access_token, httponly=True,
-            secure=True, samesite="lax", max_age=900, path="/"
+            secure=True, samesite="none", max_age=900, path="/"
         )
         
         return {"message": "Token refreshed"}
@@ -385,7 +400,6 @@ async def create_order(order: OrderCreate, user: dict = Depends(get_current_user
         "courier_name": None,
         "courier_lat": None,
         "courier_lng": None,
-        # Zaman Damgalari
         "timestamps": {
             "created_at": now.isoformat(),
             "assigned_at": None,
@@ -407,7 +421,6 @@ async def create_order(order: OrderCreate, user: dict = Depends(get_current_user
     order_doc["id"] = str(result.inserted_id)
     order_doc.pop("_id", None)
     
-    # Push Bildirimi: Tum kuryelere yeni siparis bildirimi
     await manager.send_to_role("courier", {
         "type": "new_order",
         "title": "Yeni Siparis!",
@@ -416,7 +429,6 @@ async def create_order(order: OrderCreate, user: dict = Depends(get_current_user
         "delivery_fee": order.delivery_fee
     })
     
-    # Admin'e bildirim
     await manager.send_to_role("admin", {
         "type": "new_order",
         "title": "Yeni Siparis Olusturuldu",
@@ -477,13 +489,11 @@ async def update_order(
     update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     update_data["updated_at"] = now
     
-    # Zaman Damgasi Guncelleme
     new_status = update_data.get("status")
     if new_status:
         timestamp_field = f"timestamps.{new_status}_at"
         update_data[timestamp_field] = now.isoformat()
         
-        # Teslimat suresi hesapla
         if new_status == "delivered":
             timestamps = order.get("timestamps", {})
             created_str = timestamps.get("created_at")
@@ -501,7 +511,6 @@ async def update_order(
     updated_order["id"] = str(updated_order["_id"])
     updated_order.pop("_id", None)
     
-    # Push Bildirimleri
     if new_status:
         status_labels = {
             "assigned": "Kurye Atandi",
@@ -512,7 +521,6 @@ async def update_order(
         }
         label = status_labels.get(new_status, new_status)
         
-        # Restorana bildirim
         restaurant_id = order.get("restaurant_id")
         if restaurant_id:
             restaurant_user = await db.users.find_one({"restaurant_id": restaurant_id})
@@ -525,7 +533,6 @@ async def update_order(
                     "status": new_status
                 })
         
-        # Kurye'ye bildirim
         courier_id = order.get("courier_id")
         if courier_id:
             await manager.send_to_user(courier_id, "courier", {
@@ -536,7 +543,6 @@ async def update_order(
                 "status": new_status
             })
         
-        # Admin'e bildirim
         await manager.send_to_role("admin", {
             "type": "order_status_update",
             "title": f"Siparis Durumu: {label}",
@@ -583,7 +589,6 @@ async def assign_courier(
     updated_order["id"] = str(updated_order["_id"])
     updated_order.pop("_id", None)
     
-    # Kurye'ye bildirim
     await manager.send_to_user(courier_id, "courier", {
         "type": "order_assigned",
         "title": "Yeni Siparis Atandi!",
@@ -624,7 +629,6 @@ async def accept_order(order_id: str, user: dict = Depends(get_current_user)):
     updated_order["id"] = str(updated_order["_id"])
     updated_order.pop("_id", None)
     
-    # Restorana bildirim
     restaurant_id = order.get("restaurant_id")
     if restaurant_id:
         restaurant_user = await db.users.find_one({"restaurant_id": restaurant_id})
@@ -637,7 +641,6 @@ async def accept_order(order_id: str, user: dict = Depends(get_current_user)):
                 "courier_name": user.get("name", "")
             })
     
-    # Admin'e bildirim
     await manager.send_to_role("admin", {
         "type": "order_accepted",
         "title": "Siparis Kabul Edildi",
@@ -648,7 +651,7 @@ async def accept_order(order_id: str, user: dict = Depends(get_current_user)):
     return updated_order
 
 # ============================================================
-# Courier Routes (Canli Takip Iyilestirildi)
+# Courier Routes
 # ============================================================
 @api_router.get("/couriers")
 async def get_couriers(user: dict = Depends(get_current_user)):
@@ -704,7 +707,6 @@ async def update_courier_location(
         }
     )
     
-    # Kurye konumunu ilgili restoranlara ve musteriye gercek zamanli gonder
     active_orders = await db.orders.find({
         "courier_id": courier_id,
         "status": {"$in": ["assigned", "picked_up", "in_transit"]}
@@ -713,7 +715,6 @@ async def update_courier_location(
     for order in active_orders:
         order_id = str(order["_id"])
         
-        # Restorana bildirim
         restaurant_id = order.get("restaurant_id")
         if restaurant_id:
             restaurant_user = await db.users.find_one({"restaurant_id": restaurant_id})
@@ -727,7 +728,6 @@ async def update_courier_location(
                     "timestamp": now.isoformat()
                 })
         
-        # Admin'e bildirim
         await manager.send_to_role("admin", {
             "type": "courier_location_update",
             "order_id": order_id,
@@ -757,12 +757,10 @@ async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current
     total_earnings = sum(order.get("delivery_fee", 0) for order in completed_orders)
     total_deliveries = len(completed_orders)
     
-    # Gunluk kazanc
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today_orders = [o for o in completed_orders if o.get("created_at") and o["created_at"] >= today]
     today_earnings = sum(o.get("delivery_fee", 0) for o in today_orders)
     
-    # Ortalama teslimat suresi
     durations = [o.get("delivery_duration_minutes", 0) for o in completed_orders if o.get("delivery_duration_minutes")]
     avg_duration = sum(durations) / len(durations) if durations else 0
     
@@ -799,7 +797,6 @@ async def get_restaurant_analytics(restaurant_id: str, user: dict = Depends(get_
     completed_orders = [o for o in orders if o["status"] == "delivered"]
     total_revenue = sum(o.get("total_amount", 0) for o in completed_orders)
     
-    # Ortalama teslimat suresi
     durations = [o.get("delivery_duration_minutes", 0) for o in completed_orders if o.get("delivery_duration_minutes")]
     avg_duration = sum(durations) / len(durations) if durations else 0
     
@@ -833,7 +830,6 @@ async def create_message(msg: MessageCreate, user: dict = Depends(get_current_us
     message_doc["id"] = str(result.inserted_id)
     message_doc.pop("_id", None)
     
-    # Mesaj bildirimini ilgili kullanicilara gonder
     order = await db.orders.find_one({"_id": ObjectId(msg.order_id)})
     if order:
         if user["role"] != "courier" and order.get("courier_id"):
@@ -865,11 +861,10 @@ async def get_messages(order_id: str, user: dict = Depends(get_current_user)):
     return messages
 
 # ============================================================
-# Rating / Derecelendirme Routes
+# Rating Routes
 # ============================================================
 @api_router.post("/ratings")
 async def create_rating(rating: RatingCreate, user: dict = Depends(get_current_user)):
-    # Siparis kontrolu
     order = await db.orders.find_one({"_id": ObjectId(rating.order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -877,7 +872,6 @@ async def create_rating(rating: RatingCreate, user: dict = Depends(get_current_u
     if order["status"] != "delivered":
         raise HTTPException(status_code=400, detail="Can only rate delivered orders")
     
-    # Daha once derecelendirilmis mi?
     existing = await db.ratings.find_one({
         "order_id": rating.order_id,
         "rater_id": user["_id"]
@@ -900,7 +894,6 @@ async def create_rating(rating: RatingCreate, user: dict = Depends(get_current_u
     rating_doc["id"] = str(result.inserted_id)
     rating_doc.pop("_id", None)
     
-    # Ortalama puani guncelle
     all_ratings = await db.ratings.find({"rated_user_id": rating.rated_user_id}).to_list(1000)
     avg = sum(r["rating"] for r in all_ratings) / len(all_ratings)
     
@@ -909,7 +902,6 @@ async def create_rating(rating: RatingCreate, user: dict = Depends(get_current_u
         {"$set": {"rating_avg": round(avg, 1), "rating_count": len(all_ratings)}}
     )
     
-    # Siparis rating'ini guncelle
     await db.orders.update_one(
         {"_id": ObjectId(rating.order_id)},
         {"$set": {"rating": rating.rating}}
@@ -927,7 +919,7 @@ async def get_user_ratings(user_id: str, user: dict = Depends(get_current_user))
     return ratings
 
 # ============================================================
-# Promo Code / Promosyon Kodu Routes
+# Promo Code Routes
 # ============================================================
 @api_router.post("/promo-codes")
 async def create_promo_code(promo: PromoCodeCreate, user: dict = Depends(get_current_user)):
@@ -1002,7 +994,7 @@ async def apply_promo_code(promo: PromoCodeApply, user: dict = Depends(get_curre
     }
 
 # ============================================================
-# Delivery Photo / Teslimat Kaniti Routes
+# Delivery Photo Routes
 # ============================================================
 @api_router.post("/orders/{order_id}/delivery-photo")
 async def upload_delivery_photo(
@@ -1028,7 +1020,6 @@ async def upload_delivery_photo(
         {"$set": {"delivery_photo_url": photo_url, "updated_at": datetime.now(timezone.utc)}}
     )
     
-    # Restorana bildirim
     restaurant_id = order.get("restaurant_id")
     if restaurant_id:
         restaurant_user = await db.users.find_one({"restaurant_id": restaurant_id})
@@ -1070,11 +1061,9 @@ async def get_admin_analytics(user: dict = Depends(get_current_user)):
         "status": {"$in": ["pending", "assigned", "picked_up", "in_transit"]}
     })
     
-    # Ortalama teslimat suresi
     durations = [o.get("delivery_duration_minutes", 0) for o in completed_orders if o.get("delivery_duration_minutes")]
     avg_duration = sum(durations) / len(durations) if durations else 0
     
-    # Bugunun istatistikleri
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today_orders = await db.orders.count_documents({"created_at": {"$gte": today}})
     today_delivered = await db.orders.count_documents({"status": "delivered", "created_at": {"$gte": today}})
@@ -1092,7 +1081,7 @@ async def get_admin_analytics(user: dict = Depends(get_current_user)):
     }
 
 # ============================================================
-# WebSocket Endpoint (Push Bildirimleri)
+# WebSocket Endpoint
 # ============================================================
 @app.websocket("/ws/{user_id}/{role}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, role: str):
@@ -1100,7 +1089,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, role: str):
     try:
         while True:
             data = await websocket.receive_text()
-            # Heartbeat / ping-pong
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
@@ -1109,7 +1097,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, role: str):
         manager.disconnect(websocket, user_id, role)
 
 # ============================================================
-# Notifications Endpoint (Bildirim Gecmisi)
+# Notifications Routes
 # ============================================================
 @api_router.get("/notifications")
 async def get_notifications(user: dict = Depends(get_current_user)):
@@ -1129,7 +1117,7 @@ async def mark_notifications_read(user: dict = Depends(get_current_user)):
     return {"message": "All notifications marked as read"}
 
 # ============================================================
-# Health Check (Railway icin)
+# Health Check
 # ============================================================
 @app.get("/health")
 async def health_check():
@@ -1144,7 +1132,6 @@ async def health_check():
 # ============================================================
 @app.on_event("startup")
 async def startup_event():
-    # Create indexes
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
     await db.orders.create_index("status")
@@ -1157,7 +1144,6 @@ async def startup_event():
     
     logger.info("Database indexes created")
     
-    # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@getir-heri.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     
@@ -1181,7 +1167,6 @@ async def startup_event():
         )
         logger.info(f"Admin password updated")
     
-    # Seed test courier
     test_courier_email = "courier@test.com"
     test_courier = await db.users.find_one({"email": test_courier_email})
     if not test_courier:
@@ -1198,7 +1183,6 @@ async def startup_event():
         })
         logger.info("Test courier created")
     
-    # Seed test restaurant
     test_restaurant_email = "restaurant@test.com"
     test_restaurant = await db.users.find_one({"email": test_restaurant_email})
     if not test_restaurant:
@@ -1229,7 +1213,6 @@ async def startup_event():
         })
         logger.info("Test restaurant created")
     
-    # Seed sample promo code
     existing_promo = await db.promo_codes.find_one({"code": "HOSGELDIN"})
     if not existing_promo:
         await db.promo_codes.insert_one({
@@ -1247,20 +1230,6 @@ async def startup_event():
 
 # Include the router in the main app
 app.include_router(api_router)
-
-# CORS - Railway ve Firebase icin guncellendi
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=[
-    "https://kurye-app05.web.app",
-    "https://kurye-app05.firebaseapp.com"
-    "https://getir-heri.onrender.com",
-    "https://getir-heri.web.app",  // Firebase hosting
-],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Configure logging
 logging.basicConfig(

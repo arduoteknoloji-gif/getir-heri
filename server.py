@@ -1217,15 +1217,17 @@ async def startup_event():
 app.include_router(api_router)
 
 # ============================================================
-# CORS Middleware - EN SONDA (Render için en stabil konum)
+# CORS Middleware - LOCAL + PRODUCTION İÇİN
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://kurye-app05.web.app",
         "https://kurye-app05.firebaseapp.com",
-        "https://courier-system-10.preview.emergentagent.com",
-        "https://getir-heri.onrender.com"
+        "https://getir-heri.onrender.com",
+        "http://localhost:3000",           # ← Local geliştirme için
+        "http://127.0.0.1:3000",           # ← Local geliştirme için
+        "http://localhost:3000/",          # bazı durumlarda slash ile de eklenir
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -1233,7 +1235,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,

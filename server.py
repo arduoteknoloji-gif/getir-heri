@@ -26,7 +26,7 @@ client = AsyncIOMotorClient(
     mongo_url,
     maxPoolSize=50,
     minPoolSize=10,
-    maxIdleTimeMS=45000,
+   maxIdleTimeMS=45000,
     serverSelectionTimeoutMS=5000
 )
 db = client[os.environ['DB_NAME']]
@@ -36,23 +36,24 @@ app = FastAPI(
     title="Getir-Heri API",
     version="1.0.0",
     docs_url="/api/docs" if os.environ.get("ENV") != "production" else None
+    redirect_slashes=False   # ← Bu satırı ekle
 )
 
 # ============================================================
 # CORS Middleware - EN ÜSTTE (hiçbir şeyden önce)
 # ============================================================
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://kurye-app05.web.app",
-        "https://kurye-app05.firebaseapp.com",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=3600,
-)
+#app.add_middleware(
+#    CORSMiddleware,
+#    allow_origins=[
+#        "https://kurye-app05.web.app",
+#        "https://kurye-app05.firebaseapp.com",
+#    ],
+#    allow_credentials=True,
+#    allow_methods=["*"],
+#    allow_headers=["*"],
+#    expose_headers=["*"],
+#    max_age=3600,
+#)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -1227,6 +1228,21 @@ async def startup_event():
             "created_at": datetime.now(timezone.utc)
         })
         logger.info("Sample promo code created: HOSGELDIN")
+# ============================================================
+# CORS Middleware - EN SONDA (birçok Render/FastAPI sorununda bu çözüyor)
+# ============================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://kurye-app05.web.app",
+        "https://kurye-app05.firebaseapp.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
+)
 
 # Include the router in the main app
 app.include_router(api_router)

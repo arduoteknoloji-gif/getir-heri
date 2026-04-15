@@ -1228,6 +1228,10 @@ async def startup_event():
             "created_at": datetime.now(timezone.utc)
         })
         logger.info("Sample promo code created: HOSGELDIN")
+
+# Include the router in the main app
+app.include_router(api_router)
+
 # ============================================================
 # CORS Middleware - EN SONDA (birçok Render/FastAPI sorununda bu çözüyor)
 # ============================================================
@@ -1235,7 +1239,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://kurye-app05.web.app",
-        "https://kurye-app05.firebaseapp.com"
+        "https://kurye-app05.firebaseapp.com",
+        "https://courier-system-10.preview.emergentagent.com",
+        "https://getir-heri.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -1243,9 +1249,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
-
-# Include the router in the main app
-app.include_router(api_router)
 
 # Configure logging
 logging.basicConfig(

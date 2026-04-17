@@ -10,7 +10,6 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ====================== CORS ======================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,11 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ====================== MODELS ======================
 class StatusUpdate(BaseModel):
     status: Literal["available", "busy", "offline"]
 
-# ====================== DUMMY USER ======================
 async def get_current_user(request: Request):
     return {
         "_id": "69e0d576d761769e31705134",
@@ -44,7 +41,7 @@ async def login():
 async def get_me(user: dict = Depends(get_current_user)):
     return user
 
-# ====================== STATUS ======================
+# ====================== STATUS (DÜZELTİLDİ) ======================
 @api_router.patch("/couriers/{courier_id}/status")
 async def update_courier_status(
     courier_id: str,
@@ -52,14 +49,15 @@ async def update_courier_status(
     user: dict = Depends(get_current_user)
 ):
     logger.info(f"Status update: {courier_id} -> {status_update.status}")
-    return {"message": f"Status updated to {status_update.status}"}
+    return {"message": f"Status updated to {status_update.status}", "status": status_update.status}
 
 # ====================== EARNINGS ======================
 @api_router.get("/couriers/{courier_id}/earnings")
 async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current_user)):
     return {
         "total_earnings": 1250,
-        "total_deliveries": 12
+        "total_deliveries": 12,
+        "average_per_delivery": 104.17
     }
 
 # ====================== ORDERS ======================
@@ -67,7 +65,6 @@ async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current
 async def get_orders(user: dict = Depends(get_current_user)):
     return []
 
-# ====================== APP ======================
 app.include_router(api_router)
 
 @app.get("/health")

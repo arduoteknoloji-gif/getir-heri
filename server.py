@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Request, Depends
+from fastapi import FastAPI, APIRouter, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Literal
@@ -10,7 +10,6 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# CORS - Her şeyi kabul et
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,17 +37,18 @@ async def login():
 async def get_me(user: dict = Depends(get_current_user)):
     return user
 
-# ====================== STATUS ENDPOINT (Basit ve Güvenli) ======================
+# ====================== STATUS ENDPOINT (Hem PATCH hem GET kabul etsin) ======================
 @api_router.patch("/couriers/{courier_id}/status")
+@api_router.put("/couriers/{courier_id}/status")   # Ekstra olarak PUT da kabul etsin
 async def update_courier_status(courier_id: str, status_update: StatusUpdate, user: dict = Depends(get_current_user)):
-    logger.info(f"✅ Status update: {courier_id} -> {status_update.status}")
+    logger.info(f"Status update: {courier_id} -> {status_update.status}")
     return {
         "success": True,
         "message": f"Durum güncellendi: {status_update.status}",
         "new_status": status_update.status
     }
 
-# Diğer endpointler
+# ====================== Diğer Endpointler ======================
 @api_router.get("/couriers/{courier_id}/earnings")
 async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current_user)):
     return {"total_earnings": 1250, "total_deliveries": 12}

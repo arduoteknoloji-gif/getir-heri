@@ -10,6 +10,7 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# CORS - Her şeyi kabul et
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,10 +38,10 @@ async def login():
 async def get_me(user: dict = Depends(get_current_user)):
     return user
 
-# ====================== STATUS (EN ÖNEMLİ KISIM) ======================
+# ====================== STATUS ENDPOINT (Basit ve Güvenli) ======================
 @api_router.patch("/couriers/{courier_id}/status")
 async def update_courier_status(courier_id: str, status_update: StatusUpdate, user: dict = Depends(get_current_user)):
-    logger.info(f"Status update request received: {courier_id} -> {status_update.status}")
+    logger.info(f"✅ Status update: {courier_id} -> {status_update.status}")
     return {
         "success": True,
         "message": f"Durum güncellendi: {status_update.status}",

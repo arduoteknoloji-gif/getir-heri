@@ -22,7 +22,6 @@ JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 7
 
-# CORS için izin verilen origin'ler
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://getir-heri.web.app")
 ALLOWED_ORIGINS = [
     FRONTEND_URL,
@@ -52,17 +51,6 @@ orders_collection = db["orders"]
 restaurants_collection = db["restaurants"]
 courier_locations_collection = db["courier_locations"]
 notifications_collection = db["notifications"]
-
-# Index oluştur
-async def create_indexes():
-    await users_collection.create_index("email", unique=True)
-    await users_collection.create_index("role")
-    await users_collection.create_index("status")
-    await orders_collection.create_index("restaurant_id")
-    await orders_collection.create_index("courier_id")
-    await orders_collection.create_index("status")
-    await orders_collection.create_index("created_at", -1)
-    await courier_locations_collection.create_index("courier_id", unique=True)
 
 # ====================== GÜVENLİK ======================
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -216,7 +204,6 @@ async def register(user_data: UserRegister):
         )
     
     token = create_access_token({"sub": user_id, "role": user_data.role})
-    
     logger.info(f"New user registered: {user_data.email} as {user_data.role}")
     
     return {
@@ -337,13 +324,23 @@ async def get_all_couriers(user: dict = Depends(get_current_user)):
     if user["role"] not in ["admin", "restaurant"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    pipeline = [
-        {"$match": {"role": "courier"}},
-        {"$lookup": {"from": "orders", "let": {"courier_id": {"$toString": "$_id"}}, "pipeline": [{"$match": {"$expr": {"$and": [{"$eq": ["$courier_id", "$$courier_id"]}, {"$eq": ["$status", "assigned"]}]}}}], "as": "active_orders"}},
-        {"$project": {"_id": {"$toString": "$_id"}, "name": 1, "email": 1, "phone": 1, "status": 1, "created_at": 1, "active_orders": {"$size": "$active_orders"}}}
-    ]
-    couriers = await users_collection.aggregate(pipeline).to_list(length=100)
-    return {"success": True, "data": couriers}
+    couriers = await users_collection.find({"role": "courier"}).to_list(length=100)
+    result = []
+    for courier in couriers:
+        active_orders = await orders_collection.count_documents({
+            "courier_id": str(courier["_id"]),
+            "status": {"$in": ["assigned", "picked_up", "in_transit"]}
+        })
+        result.append({
+            "_id": str(courier["_id"]),
+            "name": courier["name"],
+            "email": courier["email"],
+            "phone": courier.get("phone"),
+            "status": courier.get("status", "offline"),
+            "created_at": courier.get("created_at"),
+            "active_orders": active_orders
+        })
+    return {"success": True, "data": result}
 
 # ====================== SİPARİŞ ROUTE'LAR ======================
 @api_router.post("/orders")
@@ -590,8 +587,7 @@ async def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    await create_indexes()
-    logger.info("Application started, indexes created")
+    logger.info("Application started")
 
 app.include_router(api_router)
 

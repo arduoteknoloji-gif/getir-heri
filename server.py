@@ -22,14 +22,20 @@ JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-key")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 7
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://getir-heri.web.app")
+# CORS - TÜM ORIGIN'LERE İZİN VER (Geliştirme için)
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://getir-heri.onrender.com")
 ALLOWED_ORIGINS = [
     FRONTEND_URL,
+    "https://getir-heri.onrender.com",
+    "https://getir-heri.web.app",
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8000",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+    # Render preview URL'leri için wildcard
+    "https://*.onrender.com",
 ]
 
 # ====================== BAĞLANTI ======================
@@ -61,7 +67,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
     name: str = Field(..., min_length=2)
-    role: Literal["courier", "restaurant", "admin"]
+    role: Literal["courier", "restaurant", "admin", "customer"]  # customer eklendi
     phone: Optional[str] = None
     restaurant_name: Optional[str] = None
     latitude: Optional[float] = None
@@ -148,13 +154,14 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ====================== CORS MIDDLEWARE (DÜZELTİLMİŞ) ======================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],  # TÜM ORIGIN'LERE İZİN VER (Geliştirme için)
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
-    expose_headers=["Content-Length", "Content-Type"],
+    allow_methods=["*"],  # TÜM METHOD'lara izin ver
+    allow_headers=["*"],  # TÜM HEADER'lara izin ver
+    expose_headers=["*"],
     max_age=3600,
 )
 

@@ -1,1 +1,2 @@
-web: uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000} 
+procfile = """web: gunicorn -w 2 -k uvicorn.workers.UvicornWorker server_final:app --bind 0.0.0.0:$PORT --timeout 120
+"""

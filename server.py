@@ -17,7 +17,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-jwt-key-12345")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 7
 
-app = FastAPI(title="Getir-Heri API")
+app = FastAPI(title="Getir-Heri API", version="1.0.0")
 security = HTTPBearer()
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -30,6 +30,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ===== HELPERS =====
 
 def get_now():
     return datetime.now(timezone.utc)
@@ -64,8 +66,16 @@ async def get_current_user(auth: HTTPAuthorizationCredentials = Depends(security
         return serialize_user(user)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token süresi dolmuş")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Oturum süresi dolmuş")
+
+# ===== HEALTH CHECK =====
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "version": "1.0.0"}
 
 # ===== AUTH =====
 
@@ -86,7 +96,6 @@ async def register(data: dict):
         raise HTTPException(status_code=400, detail="Bu email zaten kayıtlı")
 
     hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
     user_doc = {
         "email": email,
         "password": hashed_pw,
@@ -98,7 +107,6 @@ async def register(data: dict):
         "created_at": get_now(),
         "updated_at": get_now()
     }
-
     result = await db.users.insert_one(user_doc)
     user_doc["_id"] = str(result.inserted_id)
     user_doc.pop("password", None)
@@ -178,7 +186,12 @@ async def accept_order(order_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Bu sipariş artık müsait değil")
     await db.orders.update_one(
         {"_id": to_obj_id(order_id)},
-        {"$set": {"courier_id": user["_id"], "courier_name": user["name"], "status": "assigned", "updated_at": get_now()}}
+        {"$set": {
+            "courier_id": user["_id"],
+            "courier_name": user["name"],
+            "status": "assigned",
+            "updated_at": get_now()
+        }}
     )
     return {"message": "Sipariş kabul edildi"}
 
@@ -209,7 +222,11 @@ async def update_courier_location(courier_id: str, data: dict, user: dict = Depe
         raise HTTPException(status_code=403, detail="Yetkisiz işlem")
     await db.users.update_one(
         {"_id": to_obj_id(courier_id)},
-        {"$set": {"current_lat": data.get("lat"), "current_lng": data.get("lng"), "updated_at": get_now()}}
+        {"$set": {
+            "current_lat": data.get("lat"),
+            "current_lng": data.get("lng"),
+            "updated_at": get_now()
+        }}
     )
     return {"message": "Konum güncellendi"}
 
@@ -222,7 +239,11 @@ async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current
     total_earnings = sum(o.get("delivery_fee", 0) for o in delivered)
     total_deliveries = len(delivered)
     avg = total_earnings / total_deliveries if total_deliveries > 0 else 0
-    return {"total_earnings": total_earnings, "total_deliveries": total_deliveries, "average_per_delivery": avg}
+    return {
+        "total_earnings": total_earnings,
+        "total_deliveries": total_deliveries,
+        "average_per_delivery": avg
+    }
 
 # ===== RESTAURANTS =====
 
@@ -234,7 +255,12 @@ async def get_restaurant_analytics(restaurant_id: str, user: dict = Depends(get_
     completed = [o for o in orders if o.get("status") == "delivered"]
     total_revenue = sum(o.get("total_amount", 0) for o in completed)
     avg_order = total_revenue / len(completed) if completed else 0
-    return {"total_orders": total_orders, "completed_orders": len(completed), "total_revenue": total_revenue, "average_order_value": avg_order}
+    return {
+        "total_orders": total_orders,
+        "completed_orders": len(completed),
+        "total_revenue": total_revenue,
+        "average_order_value": avg_order
+    }
 
 # ===== ADMIN =====
 
@@ -250,7 +276,14 @@ async def admin_dashboard_stats(user: dict = Depends(get_current_user)):
     pipeline = [{"$match": {"status": "delivered"}}, {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}]
     revenue_result = await db.orders.aggregate(pipeline).to_list(1)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
-    return {"totalOrders": total_orders, "pendingOrders": pending_orders, "totalUsers": total_users, "totalRestaurants": total_restaurants, "activeCouriers": active_couriers, "totalRevenue": total_revenue}
+    return {
+        "totalOrders": total_orders,
+        "pendingOrders": pending_orders,
+        "totalUsers": total_users,
+        "totalRestaurants": total_restaurants,
+        "activeCouriers": active_couriers,
+        "totalRevenue": total_revenue
+    }
 
 @app.get("/api/admin/recent-orders")
 async def admin_recent_orders(user: dict = Depends(get_current_user)):
@@ -306,10 +339,20 @@ async def admin_analytics(period: str = "week", user: dict = Depends(get_current
     total_orders = await db.orders.count_documents({"created_at": {"$gte": start_date}})
     active_couriers = await db.users.count_documents({"role": "courier", "status": "available"})
     total_restaurants = await db.users.count_documents({"role": "restaurant"})
-    pipeline = [{"$match": {"status": "delivered", "created_at": {"$gte": start_date}}}, {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}]
+    pipeline = [
+        {"$match": {"status": "delivered", "created_at": {"$gte": start_date}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+    ]
     revenue_result = await db.orders.aggregate(pipeline).to_list(1)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
-    return {"totalOrders": total_orders, "ordersToday": 0, "totalRevenue": total_revenue, "revenueToday": 0, "activeCouriers": active_couriers, "totalRestaurants": total_restaurants}
+    return {
+        "totalOrders": total_orders,
+        "ordersToday": 0,
+        "totalRevenue": total_revenue,
+        "revenueToday": 0,
+        "activeCouriers": active_couriers,
+        "totalRestaurants": total_restaurants
+    }
 
 if __name__ == "__main__":
     import uvicorn

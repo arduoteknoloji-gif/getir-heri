@@ -31,8 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===== HELPERS =====
-
 def get_now():
     return datetime.now(timezone.utc)
 
@@ -71,7 +69,7 @@ async def get_current_user(auth: HTTPAuthorizationCredentials = Depends(security
     except Exception:
         raise HTTPException(status_code=401, detail="Oturum süresi dolmuş")
 
-# ===== HEALTH CHECK =====
+# ===== HEALTH =====
 
 @app.get("/api/health")
 async def health():
@@ -81,10 +79,22 @@ async def health():
 
 @app.post("/api/auth/register")
 async def register(data: dict):
+    """
+    Kayıt sadece admin tarafından yapılabilir.
+    Admin kendi hesabını ilk kez oluştururken admin_secret gerekir.
+    Sonraki tüm kayıtlar admin token'ı ile /api/admin/users endpoint'inden yapılır.
+    """
+    admin_secret = data.get("admin_secret")
+    expected_secret = os.getenv("ADMIN_SECRET", "getir-heri-admin-2024")
+    
+    # Admin secret yoksa kayıt kapalı
+    if not admin_secret or admin_secret != expected_secret:
+        raise HTTPException(status_code=403, detail="Kayıt sadece yönetici tarafından yapılabilir")
+
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
     name = data.get("name", "").strip()
-    role = data.get("role", "customer")
+    role = data.get("role", "courier")
 
     if not email or not password or not name:
         raise HTTPException(status_code=400, detail="Email, şifre ve isim zorunludur")
@@ -103,6 +113,7 @@ async def register(data: dict):
         "role": role,
         "phone": data.get("phone"),
         "restaurant_name": data.get("restaurant_name"),
+        "delivery_fee": data.get("delivery_fee", 25),  # Admin belirlediği teslimat ücreti
         "status": "offline" if role == "courier" else "active",
         "created_at": get_now(),
         "updated_at": get_now()
@@ -128,6 +139,69 @@ async def login(data: dict):
 @app.post("/api/auth/logout")
 async def logout(user: dict = Depends(get_current_user)):
     return {"success": True, "message": "Çıkış yapıldı"}
+
+# ===== ADMIN USER MANAGEMENT =====
+
+@app.post("/api/admin/users")
+async def admin_create_user(data: dict, user: dict = Depends(get_current_user)):
+    """Admin tarafından kullanıcı oluşturma - courier ve restaurant için"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Sadece admin kullanıcı oluşturabilir")
+
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+    name = data.get("name", "").strip()
+    role = data.get("role", "courier")
+
+    if not email or not password or not name:
+        raise HTTPException(status_code=400, detail="Email, şifre ve isim zorunludur")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Şifre en az 6 karakter olmalıdır")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Bu email zaten kayıtlı")
+
+    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user_doc = {
+        "email": email,
+        "password": hashed_pw,
+        "name": name,
+        "role": role,
+        "phone": data.get("phone"),
+        "restaurant_name": data.get("restaurant_name"),
+        "delivery_fee": data.get("delivery_fee", 25),
+        "status": "offline" if role == "courier" else "active",
+        "created_at": get_now(),
+        "updated_at": get_now()
+    }
+    result = await db.users.insert_one(user_doc)
+    user_doc["_id"] = str(result.inserted_id)
+    user_doc.pop("password", None)
+    return {"success": True, "user": user_doc}
+
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, data: dict, user: dict = Depends(get_current_user)):
+    """Admin kullanıcı güncelleme - teslimat ücreti dahil"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Yetkisiz")
+    
+    update_data = {}
+    if "delivery_fee" in data:
+        update_data["delivery_fee"] = float(data["delivery_fee"])
+    if "name" in data:
+        update_data["name"] = data["name"]
+    if "phone" in data:
+        update_data["phone"] = data["phone"]
+    if "status" in data:
+        update_data["status"] = data["status"]
+    if "restaurant_name" in data:
+        update_data["restaurant_name"] = data["restaurant_name"]
+    
+    update_data["updated_at"] = get_now()
+    
+    await db.users.update_one({"_id": to_obj_id(user_id)}, {"$set": update_data})
+    return {"success": True, "message": "Kullanıcı güncellendi"}
 
 # ===== ORDERS =====
 
@@ -161,6 +235,9 @@ async def create_order(order_data: dict, user: dict = Depends(get_current_user))
     order_data["restaurant_id"] = user["_id"]
     order_data["restaurant_name"] = user.get("restaurant_name") or user.get("name")
     order_data["status"] = "pending"
+    # delivery_fee order_data'da yoksa varsayılan 25
+    if "delivery_fee" not in order_data:
+        order_data["delivery_fee"] = 25
     order_data["created_at"] = get_now()
     order_data["updated_at"] = get_now()
     result = await db.orders.insert_one(order_data)
@@ -184,11 +261,17 @@ async def accept_order(order_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Sipariş bulunamadı")
     if order.get("status") != "pending":
         raise HTTPException(status_code=400, detail="Bu sipariş artık müsait değil")
+    
+    # Kurye'nin delivery_fee bilgisini al
+    courier = await db.users.find_one({"_id": to_obj_id(user["_id"])})
+    courier_delivery_fee = courier.get("delivery_fee", 25) if courier else 25
+    
     await db.orders.update_one(
         {"_id": to_obj_id(order_id)},
         {"$set": {
             "courier_id": user["_id"],
             "courier_name": user["name"],
+            "courier_delivery_fee": courier_delivery_fee,
             "status": "assigned",
             "updated_at": get_now()
         }}
@@ -222,11 +305,7 @@ async def update_courier_location(courier_id: str, data: dict, user: dict = Depe
         raise HTTPException(status_code=403, detail="Yetkisiz işlem")
     await db.users.update_one(
         {"_id": to_obj_id(courier_id)},
-        {"$set": {
-            "current_lat": data.get("lat"),
-            "current_lng": data.get("lng"),
-            "updated_at": get_now()
-        }}
+        {"$set": {"current_lat": data.get("lat"), "current_lng": data.get("lng"), "updated_at": get_now()}}
     )
     return {"message": "Konum güncellendi"}
 
@@ -236,14 +315,10 @@ async def get_courier_earnings(courier_id: str, user: dict = Depends(get_current
         raise HTTPException(status_code=403, detail="Yetkisiz işlem")
     cursor = db.orders.find({"courier_id": courier_id, "status": "delivered"})
     delivered = await cursor.to_list(length=1000)
-    total_earnings = sum(o.get("delivery_fee", 0) for o in delivered)
+    total_earnings = sum(o.get("courier_delivery_fee", o.get("delivery_fee", 0)) for o in delivered)
     total_deliveries = len(delivered)
     avg = total_earnings / total_deliveries if total_deliveries > 0 else 0
-    return {
-        "total_earnings": total_earnings,
-        "total_deliveries": total_deliveries,
-        "average_per_delivery": avg
-    }
+    return {"total_earnings": total_earnings, "total_deliveries": total_deliveries, "average_per_delivery": avg}
 
 # ===== RESTAURANTS =====
 
@@ -255,12 +330,7 @@ async def get_restaurant_analytics(restaurant_id: str, user: dict = Depends(get_
     completed = [o for o in orders if o.get("status") == "delivered"]
     total_revenue = sum(o.get("total_amount", 0) for o in completed)
     avg_order = total_revenue / len(completed) if completed else 0
-    return {
-        "total_orders": total_orders,
-        "completed_orders": len(completed),
-        "total_revenue": total_revenue,
-        "average_order_value": avg_order
-    }
+    return {"total_orders": total_orders, "completed_orders": len(completed), "total_revenue": total_revenue, "average_order_value": avg_order}
 
 # ===== ADMIN =====
 
@@ -276,14 +346,7 @@ async def admin_dashboard_stats(user: dict = Depends(get_current_user)):
     pipeline = [{"$match": {"status": "delivered"}}, {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}]
     revenue_result = await db.orders.aggregate(pipeline).to_list(1)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
-    return {
-        "totalOrders": total_orders,
-        "pendingOrders": pending_orders,
-        "totalUsers": total_users,
-        "totalRestaurants": total_restaurants,
-        "activeCouriers": active_couriers,
-        "totalRevenue": total_revenue
-    }
+    return {"totalOrders": total_orders, "pendingOrders": pending_orders, "totalUsers": total_users, "totalRestaurants": total_restaurants, "activeCouriers": active_couriers, "totalRevenue": total_revenue}
 
 @app.get("/api/admin/recent-orders")
 async def admin_recent_orders(user: dict = Depends(get_current_user)):
@@ -339,20 +402,10 @@ async def admin_analytics(period: str = "week", user: dict = Depends(get_current
     total_orders = await db.orders.count_documents({"created_at": {"$gte": start_date}})
     active_couriers = await db.users.count_documents({"role": "courier", "status": "available"})
     total_restaurants = await db.users.count_documents({"role": "restaurant"})
-    pipeline = [
-        {"$match": {"status": "delivered", "created_at": {"$gte": start_date}}},
-        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
-    ]
+    pipeline = [{"$match": {"status": "delivered", "created_at": {"$gte": start_date}}}, {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}]
     revenue_result = await db.orders.aggregate(pipeline).to_list(1)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
-    return {
-        "totalOrders": total_orders,
-        "ordersToday": 0,
-        "totalRevenue": total_revenue,
-        "revenueToday": 0,
-        "activeCouriers": active_couriers,
-        "totalRestaurants": total_restaurants
-    }
+    return {"totalOrders": total_orders, "ordersToday": 0, "totalRevenue": total_revenue, "revenueToday": 0, "activeCouriers": active_couriers, "totalRestaurants": total_restaurants}
 
 if __name__ == "__main__":
     import uvicorn
